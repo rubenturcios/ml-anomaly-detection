@@ -103,7 +103,7 @@ This project implements a complete MLOps pipeline on AWS, featuring automated mo
 ┌─────────────────────────────────────┐
 │         SageMaker Endpoints         │
 │  ┌─────────────┐  ┌──────────────┐ │
-│  │ Event Model │  │custom Model│ │
+│  │ Event Model │  │Custom Model│ │
 │  └──────┬──────┘  └──────┬───────┘ │
 └─────────┼─────────────────┼─────────┘
           │                 │
