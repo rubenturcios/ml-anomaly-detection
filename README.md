@@ -315,8 +315,3 @@ To avoid ongoing AWS charges:
 ```bash
 cdk destroy
 ```
-
-## Acknowledgments
-
-- AWS SageMaker documentation
-- AWS CDK examples
