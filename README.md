@@ -316,20 +316,7 @@ To avoid ongoing AWS charges:
 cdk destroy
 ```
 
-## Contributing
-
-[Add contribution guidelines]
-
-## License
-
-[Add your license]
-
-## Contact
-
-[Add your contact information]
-
 ## Acknowledgments
 
 - AWS SageMaker documentation
 - AWS CDK examples
-- [Other acknowledgments]
