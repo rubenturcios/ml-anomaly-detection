@@ -28,10 +28,10 @@ class GlueServiceStack(Stack):
             ]
         )
         # RDS secret
-        secret_value = secrets_client.get_secret_value(SecretId=self.node.try_get_context('secrets_manager_name'))
-        secret = json.loads(secret_value['SecretString'])
-        username = secret['username']
-        password = secret['password']
+        secret_arn = (
+            f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:"
+            f"{self.node.try_get_context('secrets_manager_name')}"
+        )
 
         # Glue Connection for RDS
         glue_connection = glue.CfnConnection(self, "GlueConnection",
@@ -45,8 +45,7 @@ class GlueServiceStack(Stack):
                         f"{self.node.try_get_context('rds_endpoint')}:5432/"
                         f"{self.node.try_get_context('db_name')}"
                     ),
-                    "USERNAME": username,
-                    "PASSWORD": password
+                    "SECRET_ID": secret_arn
                 },
                 physical_connection_requirements=glue.CfnConnection.PhysicalConnectionRequirementsProperty(
                     availability_zone="us-east-1b",
