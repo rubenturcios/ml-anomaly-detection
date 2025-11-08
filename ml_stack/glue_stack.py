@@ -20,46 +20,60 @@ class GlueServiceStack(Stack):
     def __init__(self, scope: Construct, id: str, **kwargs) -> None:
         super().__init__(scope, id, **kwargs)
 
-        # Create IAM Role for Glue
+        # IAM Role
         glue_role = iam.Role(self, "GlueRole",
             assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSGlueServiceRole")
             ]
         )
-        # Retrieve the RDS secret
+        # RDS secret
         secret_value = secrets_client.get_secret_value(SecretId=self.node.try_get_context('secrets_manager_name'))
         secret = json.loads(secret_value['SecretString'])
         username = secret['username']
         password = secret['password']
-        # Create Glue Connection for RDS
+
+        # Glue Connection for RDS
         glue_connection = glue.CfnConnection(self, "GlueConnection",
             catalog_id=self.account,
             connection_input=glue.CfnConnection.ConnectionInputProperty(
                 name="rds-connection",
                 connection_type="JDBC",
                 connection_properties={
-                    "JDBC_CONNECTION_URL": f"jdbc:postgresql://{self.node.try_get_context('rds_endpoint')}:5432/{self.node.try_get_context('db_name')}",
+                    "JDBC_CONNECTION_URL": (
+                        f"jdbc:postgresql://"
+                        f"{self.node.try_get_context('rds_endpoint')}:5432/"
+                        f"{self.node.try_get_context('db_name')}"
+                    ),
                     "USERNAME": username,
                     "PASSWORD": password
                 },
                 physical_connection_requirements=glue.CfnConnection.PhysicalConnectionRequirementsProperty(
                     availability_zone="us-east-1b",
-                    # security_group_id_list=["sg-xxxxxxxx"],
+                    security_group_id_list=[self.node.try_get_context('security_group_id')],
+                    subnet_id=self.node.try_get_context('subnet_id')
                 )
             )
         )
-        # create glue bucket
+
+        # Bucket
         glue_bucket = s3.Bucket(self, "GlueBucket")
-        # Create Glue Database
+        glue_bucket.grant_read_write(glue_role)
+        glue_role.add_to_policy(iam.PolicyStatement(
+            actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+            resources=[f"{glue_bucket.bucket_arn}/*"]
+        ))
+
+        # Glue Database
         glue_db = glue.CfnDatabase(self, "GlueDatabase",
             catalog_id=self.account,
             database_input=glue.CfnDatabase.DatabaseInputProperty(
-                name="my_glue_database"
+                name="ml_glue_database",
+                description="Database for RDS ingestion"
             )
         )
 
-        # Create Glue Crawler
+        # Glue Crawler
         glue_crawler = glue.CfnCrawler(self, "GlueCrawler",
             role=glue_role.role_arn,
             database_name=glue_db.ref,
@@ -74,21 +88,39 @@ class GlueServiceStack(Stack):
             description="Crawler for RDS data",
             schedule=glue.CfnCrawler.ScheduleProperty(
                 schedule_expression="cron(0 12 * * ? *)"
+            ),
+            schema_change_policy=glue.CfnCrawler.SchemaChangePolicyProperty(
+                update_behavior="UPDATE_IN_DATABASE",
+                delete_behavior="LOG"
             )
         )
+        glue_crawler.add_dependency(glue_connection)
 
-        # Create Glue Job
+        # Glue Job
         glue_job = glue.CfnJob(self, "GlueJob",
-            name="ml_glue_job",
+            name="ml_glue_etl_job",
             role=glue_role.role_arn,
             command=glue.CfnJob.JobCommandProperty(
                 name="glueetl",
-                script_location="s3://ml-script-bucket/ml-script.py",
+                script_location=f"s3://{glue_bucket.bucket_name}/scripts/ml-script.py",
                 python_version="3"
             ),
             default_arguments={
-                "--TempDir": "s3://ml-temp-bucket/temp/",
-                "--job-language": "python"
+                "--TempDir": f"s3://{glue_bucket.bucket_name}/temp/",
+                "--job-language": "python",
+                "--enable-metrics": "true",
+                "--enable-continuous-cloudwatch-log": "true",
+                "--job-bookmark-option": "job-bookmark-enable",
+                "--output_bucket": glue_bucket.bucket_name,
+                "--database_name": glue_db.ref,
+                "--connection_name": glue_connection.ref
             },
-            max_capacity=2
+            glue_version="4.0",
+            max_retries=1,
+            timeout=60,
+            number_of_workers=2,
+            worker_type="G.1X",
+            connections=glue.CfnJob.ConnectionsListProperty(
+                connections=[glue_connection.ref]
+            )
         )
